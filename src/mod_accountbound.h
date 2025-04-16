@@ -1,25 +1,21 @@
 #ifndef MOD_ACCOUNTBOUND
 #define MOD_ACCOUNTBOUND
 
-#include "Chat.h"
-#include "Config.h"
-#include "Player.h"
-#include "ScriptedGossip.h"
 #include "ScriptMgr.h"
 
-struct Companions
+struct AccountCompanions
 {
     uint32 SpellId;
     uint32 AllowableRace;
 };
 
-struct FactionSpecificCompanions
+struct FactionSpecificAccountCompanions
 {
     uint32 AllianceId;
     uint32 HordeId;
 };
 
-struct Mounts
+struct AccountMounts
 {
     uint32 SpellId;
     uint32 AllowableRace;
@@ -29,13 +25,13 @@ struct Mounts
     uint32 RequiredSkillRank;
 };
 
-struct FactionSpecificMounts
+struct FactionSpecificAccountMounts
 {
     uint32 AllianceId;
     uint32 HordeId;
 };
 
-enum Achievements
+enum RidingAchievement
 {
     ACHIEVEMENT_APPRENTICE = 891,
     ACHIEVEMENT_JOURNEYMAN = 889,
@@ -43,7 +39,7 @@ enum Achievements
     ACHIEVEMENT_ARTISAN = 892
 };
 
-class AccountBound : public CreatureScript, PlayerScript, WorldScript
+class AccountBound : public PlayerScript, CreatureScript, WorldScript
 {
 public:
     AccountBound();
@@ -52,38 +48,41 @@ public:
     bool OnGossipHello(Player* /*player*/, Creature* /*creature*/) override;
 
     // PlayerScript
-    void OnAchiComplete(Player* /*player*/, AchievementEntry const* /*achievement*/) override;
-    void OnAfterStoreOrEquipNewItem(Player* /*player*/, uint32 /*vendorslot*/, Item* /*item*/, uint8 /*count*/, uint8 /*bag*/, uint8 /*slot*/, ItemTemplate const* /*pProto*/, Creature* /*pVendor*/, VendorItem const* /*crItem*/, bool /*bStore*/) override;
-    void OnLevelChanged(Player* /*player*/, uint8 /*oldlevel*/) override;
-    void OnLogin(Player* /*player*/) override;
-    void OnSave(Player* /*player*/) override;
+    void OnPlayerAchievementComplete(Player* /*player*/, AchievementEntry const* /*achievement*/) override;
+    void OnPlayerAfterStoreOrEquipNewItem(Player* /*player*/, uint32 /*vendorslot*/, Item* /*item*/, uint8 /*count*/, uint8 /*bag*/, uint8 /*slot*/, ItemTemplate const* /*pProto*/, Creature* /*pVendor*/, VendorItem const* /*crItem*/, bool /*bStore*/) override;
+    void OnPlayerLearnSpell(Player* /*player*/, uint32 /*spellID*/) override;
+    void OnPlayerLevelChanged(Player* /*player*/, uint8 /*oldlevel*/) override;
+    void OnPlayerLogin(Player* /*player*/) override;
 
     // WorldScript
     void OnAfterConfigLoad(bool /*reload*/) override;
     void OnStartup() override;
 
 private:
-    std::vector<Companions> companions;
-    std::vector<FactionSpecificCompanions> factionSpecificCompanions;
-    std::vector<Mounts> mounts;
-    std::vector<FactionSpecificMounts> factionSpecificMounts;
+    std::vector<AccountCompanions> accountCompanions;
+    std::vector<FactionSpecificAccountCompanions> factionSpecificAccountCompanions;
+    std::vector<AccountMounts> accountMounts;
+    std::vector<FactionSpecificAccountMounts> factionSpecificAccountMounts;
 
     bool EnableGamemasters;
-    bool EnableCompanions;
-    bool EnableHeirlooms;
-    bool EnableMounts;
+    bool EnableAccountCompanions;
+    bool EnableAccountHeirlooms;
+    bool EnableAccountMounts;
 
     void LoadCompanions();
     void LoadFactionSpecificCompanions();
-    void SaveCompanions(Player* /*player*/);
+    void SaveCompanion(Player* /*player*/, uint32 /*spell_id*/);
     void LearnCompanions(Player* /*player*/);
-    uint32 GetFactionSpecificCompanionId(uint32 /*spell_id*/);
+    int FindFactionSpecificCompanion(uint32 /*spell_id*/);
+
+    void SaveHeirloom(Player* /*player*/, uint32 /*itemId*/);
+
     void LoadMounts();
-    void SaveMounts(Player* /*player*/);
-    void LearnMounts(Player* /*player*/);
+
     void LoadFactionSpecificMounts();
-    uint32 GetFactionSpecificMountId(uint32 /*spell_id*/);
-    void SaveHeirloom(Player* /*player*/, Item* /*item*/);
+    void SaveMounts(Player* /*player*/, uint32 /*spell_id*/);
+    void LearnMounts(Player* /*player*/);
+    int FindFactionSpecificMount(uint32 /*spell_id*/);
 };
 
 #endif

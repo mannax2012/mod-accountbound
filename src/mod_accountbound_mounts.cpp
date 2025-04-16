@@ -1,138 +1,154 @@
 #include "mod_accountbound.h"
+#include "Player.h"
+#include "DatabaseEnv.h"
+#include "Log.h"
+#include "StringFormat.h"
 
 void AccountBound::LoadMounts()
 {
-    QueryResult result = LoginDatabase.Query("SELECT `spell_id`, `allowable_race`, `allowable_class`, `required_level`, "
+    QueryResult result = LoginDatabase.Query(
+        "SELECT `spell_id`, `allowable_race`, `allowable_class`, `required_level`, "
         "`required_skill`, `required_skill_rank` FROM `account_bound_mount_template`");
 
     if (!result)
     {
-        LOG_INFO("server.loading", ">> Loaded 0 mount spells");
+        LOG_INFO("server.loading", ">> Loaded 0 mount templates.");
         return;
     }
 
-    mounts.clear();
+    accountMounts.clear();
+    uint32 count = 0;
 
-    int i = 0;
     do
     {
-        mounts.push_back(Mounts());
         Field* fields = result->Fetch();
-        mounts[i].SpellId = fields[0].Get<int32>();
-        mounts[i].AllowableRace = fields[1].Get<int32>();
-        mounts[i].AllowableClass = fields[2].Get<int32>();
-        mounts[i].RequiredLevel = fields[3].Get<int32>();
-        mounts[i].RequiredSkill = fields[4].Get<int32>();
-        mounts[i].RequiredSkillRank = fields[5].Get<int32>();
+        AccountMounts mount;
+        mount.SpellId = fields[0].Get<uint32>();
+        mount.AllowableRace = fields[1].Get<uint32>();
+        mount.AllowableClass = fields[2].Get<uint32>();
+        mount.RequiredLevel = fields[3].Get<uint32>();
+        mount.RequiredSkill = fields[4].Get<uint32>();
+        mount.RequiredSkillRank = fields[5].Get<uint32>();
 
-        i++;
+        accountMounts.push_back(mount);
+        ++count;
     } while (result->NextRow());
 
-    LOG_INFO("server.loading", ">> Loaded {} mount templates", i);
+    LOG_INFO("server.loading", ">> Loaded {} mount templates.", count);
 }
 
 void AccountBound::LoadFactionSpecificMounts()
 {
-    QueryResult result = LoginDatabase.Query("SELECT `alliance_id`, `horde_id` FROM `account_bound_factionchange_spells` pfs LEFT OUTER JOIN "
-        "`account_bound_mount_template` abt ON pfs.`alliance_id` = abt.`spell_id` WHERE abt.`allowable_race` = 1101");
+    QueryResult result = LoginDatabase.Query(
+        "SELECT `alliance_id`, `horde_id` "
+        "FROM `account_bound_factionchange_spells` AS pfs "
+        "LEFT JOIN `account_bound_mount_template` AS abt ON pfs.`alliance_id` = abt.`spell_id` "
+        "WHERE abt.`allowable_race` = 1101");
 
     if (!result)
     {
-        LOG_INFO("server.loading", ">> Loaded 0 faction-specific mount templates");
+        LOG_INFO("server.loading", ">> Loaded 0 faction-specific mount templates.");
         return;
     }
 
-    factionSpecificMounts.clear();
+    factionSpecificAccountMounts.clear();
+    uint32 count = 0;
 
-    int i = 0;
     do
     {
-        factionSpecificMounts.push_back(FactionSpecificMounts());
         Field* fields = result->Fetch();
-        factionSpecificMounts[i].AllianceId = fields[0].Get<int32>();
-        factionSpecificMounts[i].HordeId = fields[1].Get<int32>();
-
-        i++;
+        FactionSpecificAccountMounts entry;
+        entry.AllianceId = fields[0].Get<uint32>();
+        entry.HordeId = fields[1].Get<uint32>();
+        factionSpecificAccountMounts.push_back(entry);
+        ++count;
     } while (result->NextRow());
 
-    LOG_INFO("server.loading", ">> Loaded {} faction-specific mount templates", i);
+    LOG_INFO("server.loading", ">> Loaded {} faction-specific mount templates.", count);
 }
 
-void AccountBound::SaveMounts(Player* player)
+void AccountBound::SaveMounts(Player* player, uint32 spellID)
 {
-    std::string data = "";
+    std::string data;
+    uint32 accountId = player->GetSession()->GetAccountId();
 
-    for (auto& mount : mounts)
+    for (const auto& mount : accountMounts)
     {
         if (!player->HasSpell(mount.SpellId))
-        {
             continue;
-        }
 
-        data.append(Acore::StringFormat("({}, {}, {}, {}, {}, {}, {}),", player->GetSession()->GetAccountId(), mount.SpellId, mount.AllowableRace, mount.AllowableClass, mount.RequiredLevel, mount.RequiredSkill, mount.RequiredSkillRank));
+        data += Acore::StringFormat("({}, {}, {}, {}, {}, {}, {}),",
+            accountId,
+            mount.SpellId,
+            mount.AllowableRace,
+            mount.AllowableClass,
+            mount.RequiredLevel,
+            mount.RequiredSkill,
+            mount.RequiredSkillRank
+        );
 
-        uint32 factionSpecificSpellId = GetFactionSpecificMountId(mount.SpellId);
-        if (factionSpecificSpellId > 0)
+        uint32 factionSpellId = FindFactionSpecificMount(mount.SpellId);
+        if (factionSpellId > 0)
         {
-            data.append(Acore::StringFormat("({}, {}, {}, {}, {}, {}, {}),", player->GetSession()->GetAccountId(), factionSpecificSpellId, mount.AllowableRace == 690 ? 1101 : 690, mount.AllowableClass, mount.RequiredLevel, mount.RequiredSkill, mount.RequiredSkillRank));
+            uint32 oppositeRace = (mount.AllowableRace == 690) ? 1101 : 690;
+            data += Acore::StringFormat("({}, {}, {}, {}, {}, {}, {}),",
+                accountId,
+                factionSpellId,
+                oppositeRace,
+                mount.AllowableClass,
+                mount.RequiredLevel,
+                mount.RequiredSkill,
+                mount.RequiredSkillRank
+            );
         }
     }
 
-    if (data.length() > 0)
+    if (!data.empty())
     {
-        data.pop_back();
-        data.append(";");
-
-        LoginDatabase.Execute("REPLACE INTO `account_bound_mounts` (`account_id`, `spell_id`, `allowable_race`, "
+        data.pop_back(); // Remove last comma
+        LoginDatabase.Execute(
+            "REPLACE INTO `account_bound_mounts` (`account_id`, `spell_id`, `allowable_race`, "
             "`allowable_class`, `required_level`, `required_skill`, `required_skill_rank`) VALUES {}", data);
     }
 }
 
 void AccountBound::LearnMounts(Player* player)
 {
-    QueryResult result = LoginDatabase.Query("SELECT `spell_id` FROM `account_bound_mounts` WHERE `account_id` = {} AND `allowable_race` & {} "
-        "AND `allowable_class` & {} AND `required_level` <= {} AND (`required_skill` = 0 OR `required_skill_rank` <= {})",
+    QueryResult result = LoginDatabase.Query(Acore::StringFormat(
+        "SELECT `spell_id` FROM `account_bound_mounts` "
+        "WHERE `account_id` = {} AND `allowable_race` & {} "
+        "AND `allowable_class` & {} AND `required_level` <= {} "
+        "AND (`required_skill` = 0 OR `required_skill_rank` <= {})",
         player->GetSession()->GetAccountId(),
         player->getRaceMask(),
         player->getClassMask(),
         player->GetLevel(),
-        player->GetSkillValue(SKILL_RIDING));
+        player->GetSkillValue(SKILL_RIDING)
+    ));
 
     if (!result)
-    {
         return;
-    }
 
     do
     {
         Field* fields = result->Fetch();
-        uint32 spell_id = fields[0].Get<uint32>();
+        uint32 spellId = fields[0].Get<uint32>();
 
-        if (!player->HasSpell(spell_id))
-        {
-            player->learnSpell(spell_id);
-        }
+        if (!player->HasSpell(spellId))
+            player->learnSpell(spellId);
     } while (result->NextRow());
 }
 
-uint32 AccountBound::GetFactionSpecificMountId(uint32 spell_id)
+int AccountBound::FindFactionSpecificMount(uint32 spell_id)
 {
-    for (auto& mount : factionSpecificMounts)
+    for (const auto& entry : factionSpecificAccountMounts)
     {
-        if (mount.AllianceId != spell_id && mount.HordeId != spell_id)
-        {
-            continue;
-        }
-
-        if (mount.AllianceId == spell_id)
-        {
-            return mount.HordeId;
-        }
-        else if (mount.HordeId == spell_id)
-        {
-            return mount.AllianceId;
-        }
+        if (entry.AllianceId == spell_id)
+            return entry.HordeId;
+        else if (entry.HordeId == spell_id)
+            return entry.AllianceId;
     }
 
     return 0;
 }
+
